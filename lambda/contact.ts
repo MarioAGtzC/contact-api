@@ -49,6 +49,22 @@ function escapeHtml(str: string): string {
     .replace(/'/g, '&#39;');
 }
 
+// Etiqueta corta del sitio que envió el formulario, para la barra del email.
+const SITE_LABELS: Record<string, string> = {
+  'mario-gutierrez.com': 'resume',
+  'portfolio.mario-gutierrez.com': 'portfolio',
+  'greenie-studios.com': 'portfolio',
+};
+
+function getSiteLabel(requestOrigin: string): string {
+  try {
+    const host = new URL(requestOrigin).hostname.replace(/^www\./, '');
+    return SITE_LABELS[host] ?? host;
+  } catch {
+    return 'unknown';
+  }
+}
+
 // Bloques opcionales del template: <!--IF:key-->...<!--ENDIF:key-->.
 // Si `present` no incluye la key, se borra el bloque completo; si la incluye,
 // solo se quitan los marcadores y el contenido queda.
@@ -192,6 +208,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
         user_subject: escapeHtml(cleanUserSubject ?? ''),
         message: escapeHtml(message),
         initials: escapeHtml(getInitials(name)),
+        site: escapeHtml(getSiteLabel(requestOrigin)),
         time,
         word_count: String(getWordCount(message)),
         subject: encodeURIComponent(emailSubject), // va dentro de un mailto:?subject=...
@@ -222,10 +239,10 @@ ${message}
         Source: process.env.SES_FROM_EMAIL,
         Destination: { ToAddresses: [process.env.SES_TO_EMAIL!] },
         Message: {
-          Subject: { Data: emailSubject },
+          Subject: { Data: emailSubject, Charset: 'UTF-8' },
           Body: {
-            Html: { Data: htmlBody },
-            Text: { Data: textBody },
+            Html: { Data: htmlBody, Charset: 'UTF-8' },
+            Text: { Data: textBody, Charset: 'UTF-8' },
           },
         },
         ReplyToAddresses: [email],

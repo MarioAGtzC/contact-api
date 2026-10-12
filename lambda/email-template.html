@@ -1,140 +1,90 @@
-<div style="font-family: system-ui, -apple-system, Arial, sans-serif; font-size: 12px; background-color: #131313; padding: 24px 12px;">
+<!-- Dirección A · "request log" oscuro — mismos tokens que mario-gutierrez.com y portfolio.mario-gutierrez.com -->
+<div style="font-family: 'Geist', system-ui, -apple-system, 'Segoe UI', Arial, sans-serif; background-color: #0e1411; padding: 24px 12px;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; margin: 0 auto;">
     <tr>
       <td>
         <!-- Card -->
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #0e0e0e; border-radius: 8px; overflow: hidden;">
-          <!-- Top stripe -->
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #151d18; border: 1px solid #26332b; border-radius: 10px;">
+
+          <!-- API bar -->
           <tr>
-            <td style="height: 6px; background-color: #2f5f02; line-height: 6px; font-size: 0;">&nbsp;</td>
+            <td style="padding: 12px 18px; border-bottom: 1px solid #26332b; font-family: 'Geist Mono', ui-monospace, Menlo, Consolas, monospace; font-size: 13px; color: #e4ebe6;">
+              <span style="background-color: #e0a84a; color: #0e1411; font-size: 10.5px; font-weight: 600; border-radius: 4px; padding: 1px 6px;">POST</span>
+              &nbsp;/contact&nbsp; <span style="color: #5cc27a;">200 OK</span>
+            </td>
+            <td align="right" style="padding: 12px 18px; border-bottom: 1px solid #26332b; font-family: 'Geist Mono', ui-monospace, Menlo, Consolas, monospace; font-size: 12px; color: #93a399;">
+              {{site}}
+            </td>
           </tr>
+
+          <!-- Header + sender -->
           <tr>
-            <td style="padding: 24px;">
-
-              <!-- Header -->
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+            <td colspan="2" style="padding: 20px 18px 0;">
+              <div style="font-size: 20px; font-weight: 600; color: #e4ebe6; letter-spacing: -0.01em;">New message from {{name}}</div>
+              <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top: 14px;">
                 <tr>
-                  <td>
-                    <div style="font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: #93d95a; font-weight: 600;">
-                      Website Notification
-                    </div>
-                    <div style="font-size: 18px; font-weight: 600; color: #e5e2e1; margin-top: 4px; letter-spacing: -0.01em;">
-                      New Form Submission
-                    </div>
-                  </td>
-                </tr>
-              </table>
-
-              <!-- Sender info card -->
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #1c1b1b; border-radius: 6px; margin-top: 16px;">
-                <tr>
-                  <td style="padding: 12px;">
-                    <div style="font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: #c2c9b7; margin-bottom: 8px;">
-                      Sender Information
-                    </div>
-                    <table role="presentation" cellpadding="0" cellspacing="0">
+                  <td style="vertical-align: top; padding-right: 12px;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" width="40" height="40" style="background-color: #5cc27a; border-radius: 8px;">
                       <tr>
-                        <td style="vertical-align: top; padding-right: 10px;">
-                          <table role="presentation" cellpadding="0" cellspacing="0" width="40" height="40" style="background-color: #2f5f02; border-radius: 8px;">
-                            <tr>
-                              <td align="center" valign="middle" style="color: #9fd872; font-size: 15px; font-weight: 600;">
-                                {{initials}}
-                              </td>
-                            </tr>
-                          </table>
-                        </td>
-                        <td style="vertical-align: top;">
-                          <div style="font-size: 15px; font-weight: 600; color: #e5e2e1;">{{name}}</div>
-                          <a href="mailto:{{email}}" style="font-size: 12px; color: #93d95a; text-decoration: none;">{{email}}</a>
-                          <!--IF:phone-->
-                          <div style="font-size: 12px; color: #93d95a;">{{phone}}</div>
-                          <!--ENDIF:phone-->
-                          <div style="font-size: 11px; color: #8c9382; margin-top: 2px;">{{time}}</div>
-                        </td>
+                        <td align="center" valign="middle" style="color: #0e1411; font-size: 15px; font-weight: 700;">{{initials}}</td>
                       </tr>
                     </table>
                   </td>
-                </tr>
-              </table>
-
-              <!-- Message -->
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top: 16px;">
-                <tr>
-                  <td>
-                    <!--IF:user_subject-->
-                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 8px;">
-                      <tr>
-                        <td style="font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: #c2c9b7;">
-                          Subject
-                        </td>
-                        <td align="right" style="font-size: 12px; color: #e5e2e1; font-weight: 500;">
-                          {{user_subject}}
-                        </td>
-                      </tr>
-                    </table>
-                    <!--ENDIF:user_subject-->
-                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-                      <tr>
-                        <td style="font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: #c2c9b7;">
-                          Message Received
-                        </td>
-                        <td align="right" style="font-size: 10px; color: #8c9382;">
-                          {{word_count}} words
-                        </td>
-                      </tr>
-                    </table>
-                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #1c1b1b; border-radius: 6px; margin-top: 6px;">
-                      <tr>
-                        <td width="4" style="background-color: #2f5f02; border-radius: 4px 0 0 4px;">&nbsp;</td>
-                        <td style="padding: 14px 16px;">
-                          <p style="font-size: 14px; line-height: 1.6; color: #e5e2e1; margin: 0;">{{message}}</p>
-                        </td>
-                      </tr>
-                    </table>
+                  <td style="vertical-align: top;">
+                    <a href="mailto:{{email}}" style="font-size: 14px; color: #5cc27a; text-decoration: none;">{{email}}</a>
+                    <!--IF:phone-->
+                    <div style="font-size: 13px; color: #b4c1b8; margin-top: 2px;">{{phone}}</div>
+                    <!--ENDIF:phone-->
+                    <div style="font-family: 'Geist Mono', ui-monospace, Menlo, Consolas, monospace; font-size: 12px; color: #93a399; margin-top: 3px;">{{time}} · {{word_count}} words</div>
                   </td>
                 </tr>
               </table>
+            </td>
+          </tr>
 
-              <!-- CTA -->
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top: 20px;">
+          <!--IF:user_subject-->
+          <tr>
+            <td colspan="2" style="padding: 16px 18px 0;">
+              <div style="font-size: 13px; color: #93a399;">Subject</div>
+              <div style="font-size: 15px; font-weight: 600; color: #e4ebe6; margin-top: 2px;">{{user_subject}}</div>
+            </td>
+          </tr>
+          <!--ENDIF:user_subject-->
+
+          <!-- Message -->
+          <tr>
+            <td colspan="2" style="padding: 16px 18px 0;">
+              <div style="background-color: #121915; border: 1px solid #26332b; border-left: 3px solid #5cc27a; border-radius: 8px; padding: 14px 16px; font-size: 15px; line-height: 1.6; color: #b4c1b8; white-space: pre-wrap; word-break: break-word;">{{message}}</div>
+            </td>
+          </tr>
+
+          <!-- CTA -->
+          <tr>
+            <td colspan="2" style="padding: 18px 18px 0;">
+              <table role="presentation" cellpadding="0" cellspacing="0">
                 <tr>
-                  <td align="center" style="border-radius: 8px; background-color: #2f5f02;">
-                    <a href="mailto:{{email}}?subject={{subject}}" style="display: block; padding: 12px 20px; font-size: 15px; font-weight: 600; color: #9fd872; text-decoration: none; text-align: center;">
-                      Reply to {{name}}
-                    </a>
+                  <td style="background-color: #5cc27a; border-radius: 8px;">
+                    <a href="mailto:{{email}}?subject={{subject}}" style="display: block; padding: 11px 18px; font-size: 14px; font-weight: 600; color: #0e1411; text-decoration: none;">Reply to {{name}}</a>
                   </td>
                 </tr>
               </table>
+            </td>
+          </tr>
 
-              <!-- Technical trace -->
-              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top: 20px; padding-top: 14px; border-top: 1px dashed #42493b;">
-                <tr>
-                  <td style="font-size: 11px; color: #8c9382; padding: 2px 0;">Source:</td>
-                  <td align="right" style="font-size: 11px; color: #e5e2e1; font-weight: 500; padding: 2px 0;">{{origin}}</td>
-                </tr>
-                <tr>
-                  <td style="font-size: 11px; color: #8c9382; padding: 2px 0;">Device / Browser:</td>
-                  <td align="right" style="font-size: 11px; color: #e5e2e1; font-weight: 500; padding: 2px 0; word-break: break-all;">{{device_info}}</td>
-                </tr>
-                <tr>
-                  <td style="font-size: 11px; color: #8c9382; padding: 2px 0;">IP Address:</td>
-                  <td align="right" style="font-size: 11px; color: #e5e2e1; font-weight: 500; padding: 2px 0;">{{ip}}</td>
-                </tr>
-              </table>
-
+          <!-- Technical trace -->
+          <tr>
+            <td colspan="2" style="padding: 18px;">
+              <pre style="margin: 0; background-color: #121915; border: 1px solid #26332b; border-radius: 8px; padding: 12px 14px; font-family: 'Geist Mono', ui-monospace, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.75; color: #93a399; white-space: pre-wrap; word-break: break-all;">{
+  <span style="color: #e0a84a;">"origin"</span>: <span style="color: #5cc27a;">"{{origin}}"</span>,
+  <span style="color: #e0a84a;">"ip"</span>: <span style="color: #5cc27a;">"{{ip}}"</span>,
+  <span style="color: #e0a84a;">"user_agent"</span>: <span style="color: #5cc27a;">"{{device_info}}"</span>
+}</pre>
             </td>
           </tr>
         </table>
 
         <!-- Footer -->
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top: 12px;">
-          <tr>
-            <td align="center" style="font-size: 10px; color: #8c9382; padding: 4px 0;">
-              This email was generated automatically from your website's contact form.
-            </td>
-          </tr>
-        </table>
-
+        <div style="text-align: center; font-size: 11px; color: #93a399; padding: 12px 0 0;">Sent by your Contact API · Lambda → SES</div>
       </td>
     </tr>
   </table>

@@ -44,11 +44,11 @@ I designed and built the entire backend end-to-end, from architecture through de
 
 ## Images, Screenshots, or Live Demos
 
-No screenshots are currently included in this repository. The most useful visual reference would be a rendered sample of the notification email, generated from `contact-api/lambda/email-template.html` — a dark-themed card showing the sender's name, initials, email, message, and submission metadata. A screenshot of that rendered template (e.g., as viewed in an email client) could be added here, along with a short GIF of the live contact form on the portfolio site submitting successfully.
+No screenshots are currently included in this repository. The most useful visual reference would be a rendered sample of the notification email, generated from `lambda/email-template.html` — a dark-themed card showing the sender's name, initials, email, message, and submission metadata. A screenshot of that rendered template (e.g., as viewed in an email client) could be added here, along with a short GIF of the live contact form on the portfolio site submitting successfully.
 
 ## Repository / Live Site
 
-- **Source code:** this repository (see [`contact-api/`](contact-api/) for the CDK project, Lambda handler, and detailed deployment guide).
+- **Source code:** this repository — the CDK stack lives in [`lib/`](lib/), the Lambda handler and email template in [`lambda/`](lambda/).
 - **Live site:** the API backs the contact form at [mario-gutierrez.com](https://mario-gutierrez.com).
 
-For full setup and deployment instructions (SES/domain verification, Turnstile configuration, environment variables, and deploy commands), see [`contact-api/README.md`](contact-api/README.md).
+For full setup and deployment instructions (SES/domain verification, Turnstile configuration, environment variables, and deploy commands), see [`DEPLOY.md`](DEPLOY.md).
