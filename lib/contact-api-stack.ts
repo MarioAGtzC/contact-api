@@ -8,6 +8,16 @@ import * as apigw from 'aws-cdk-lib/aws-apigatewayv2';
 import * as lambda from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 
+// Lee un valor de contexto (-c key=value) y detiene el deploy si falta, en vez
+// de desplegar con un valor vacío sin avisar.
+function requireContext(scope: Construct, key: string): string {
+  const value = scope.node.tryGetContext(key);
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error(`Falta el contexto "${key}". Despliega con: npx cdk deploy -c ${key}=...`);
+  }
+  return value.trim();
+}
+
 export class ContactApiStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
@@ -17,22 +27,22 @@ export class ContactApiStack extends cdk.Stack {
     // ---------------------------------------------------------------------
     const DOMAIN_NAME = 'mario-gutierrez.com';              // tu dominio, sin "https://"
     const SES_FROM_EMAIL = `contact@${DOMAIN_NAME}`;        // dirección de envío en tu dominio
-    const SES_TO_EMAIL = 'marioagtzc@hotmail.com';          // donde quieres recibir los mensajes
+    // Donde recibes los mensajes — se pasa al hacer deploy (-c toEmail=...) para
+    // no publicar tu correo personal en el repo.
+    const SES_TO_EMAIL = requireContext(this, 'toEmail');
     // Todos los frontends que pueden llamar a esta API — agrega aquí cualquier sitio nuevo
     const ALLOWED_ORIGINS = [
       'https://mario-gutierrez.com',
       'https://portfolio.mario-gutierrez.com',
-      'https://greenie-studios.com', // dominio anterior del portfolio; quitar cuando la redirección 301 esté activa
     ];
 
     // Cada sitio puede tener su propio site/secret de Turnstile — agrega aquí
     // el context key correspondiente y pásalo al hacer deploy:
     // cdk deploy -c turnstileSecret=xxxx -c turnstileSecretGreenie=yyyy
     const TURNSTILE_SECRETS: Record<string, string> = {
-      'https://mario-gutierrez.com': this.node.tryGetContext('turnstileSecret') || '',
+      'https://mario-gutierrez.com': requireContext(this, 'turnstileSecret'),
       // El portfolio usa el widget de greenie (mismo site key en su nuevo dominio)
-      'https://portfolio.mario-gutierrez.com': this.node.tryGetContext('turnstileSecretGreenie') || '',
-      'https://greenie-studios.com': this.node.tryGetContext('turnstileSecretGreenie') || '',
+      'https://portfolio.mario-gutierrez.com': requireContext(this, 'turnstileSecretGreenie'),
     };
 
     // ---------------------------------------------------------------------
@@ -98,11 +108,15 @@ export class ContactApiStack extends cdk.Stack {
       },
     });
 
-    // Permiso para que la Lambda pueda mandar emails vía SES
+    // Permiso para que la Lambda pueda mandar emails vía SES — solo desde tu
+    // dominio. Mientras SES esté en sandbox, IAM también evalúa la identidad del
+    // destinatario, por eso va incluida.
+    const sesIdentityArn = (identity: string) =>
+      this.formatArn({ service: 'ses', resource: 'identity', resourceName: identity });
     contactFn.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ['ses:SendEmail', 'ses:SendRawEmail'],
-        resources: ['*'],
+        resources: [sesIdentityArn(DOMAIN_NAME), sesIdentityArn(SES_TO_EMAIL)],
       })
     );
 

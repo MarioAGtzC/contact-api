@@ -80,7 +80,6 @@ Abre `lib/contact-api-stack.ts` y cambia:
 ```typescript
 const DOMAIN_NAME = 'tudominio.com';
 const SES_FROM_EMAIL = `contacto@${DOMAIN_NAME}`;
-const SES_TO_EMAIL = 'tu-email@hotmail.com';
 const ALLOWED_ORIGIN = 'https://tu-sitio.com';
 ```
 
@@ -92,12 +91,15 @@ Primera vez en esta cuenta/región, necesitas hacer bootstrap una sola vez:
 npx cdk bootstrap
 ```
 
-Luego despliega pasando tu Turnstile secret key como contexto (así no queda
-hardcodeada en el código):
+Luego despliega pasando como contexto tu correo de destino y las Secret Keys
+de Turnstile de cada widget (así no quedan escritas en el código):
 
 ```bash
-npx cdk deploy -c turnstileSecret=TU_SECRET_KEY_DE_TURNSTILE
+npx cdk deploy -c toEmail=TU_EMAIL -c turnstileSecret=SECRET_WIDGET_MARIO -c turnstileSecretGreenie=SECRET_WIDGET_GREENIE
 ```
+
+Los tres son obligatorios: si falta alguno, el deploy se detiene con un error
+en vez de desplegar con un valor vacío.
 
 Al terminar, la terminal imprime algo como:
 

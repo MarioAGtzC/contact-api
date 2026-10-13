@@ -14,7 +14,7 @@ interface ContactPayload {
   email: string;
   message: string;
   turnstileToken: string;
-  // Campos nuevos que solo manda greenie-studios.com — opcionales para no
+  // Campos que solo manda el portfolio — opcionales para no
   // romper el payload del sitio original (mario-gutierrez.com)
   phone?: string;
   subject?: string;
@@ -53,7 +53,6 @@ function escapeHtml(str: string): string {
 const SITE_LABELS: Record<string, string> = {
   'mario-gutierrez.com': 'resume',
   'portfolio.mario-gutierrez.com': 'portfolio',
-  'greenie-studios.com': 'portfolio',
 };
 
 function getSiteLabel(requestOrigin: string): string {
@@ -98,10 +97,10 @@ async function verifyTurnstile(token: string, ip: string, requestOrigin: string)
 
   const secret = turnstileSecrets[requestOrigin];
   if (!secret) {
-    // Si no configuraste la secret key para este origin, no bloquees en seco — pero avisa en logs.
-    // Quita ese origin del fallback (o agrega su secret) una vez que tengas Turnstile configurado.
-    console.warn(`No hay TURNSTILE secret configurada para el origin "${requestOrigin}" — saltando verificación de captcha`);
-    return true;
+    // Sin secret no hay forma de verificar el token: se rechaza el mensaje en vez
+    // de dejarlo pasar sin captcha.
+    console.error(`No hay TURNSTILE secret configurada para el origin "${requestOrigin}" — mensaje rechazado`);
+    return false;
   }
 
   try {
@@ -110,8 +109,17 @@ async function verifyTurnstile(token: string, ip: string, requestOrigin: string)
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ secret, response: token, remoteip: ip }),
     });
-    const data = (await res.json()) as { success: boolean };
-    return data.success === true;
+    const data = (await res.json()) as { success: boolean; hostname?: string };
+    if (data.success !== true) return false;
+
+    // El token debe haberse resuelto en el mismo sitio que hace la petición —
+    // evita reutilizar un token obtenido en otro dominio.
+    const expectedHostname = new URL(requestOrigin).hostname;
+    if (data.hostname !== expectedHostname) {
+      console.warn(`Turnstile hostname "${data.hostname}" no coincide con "${expectedHostname}"`);
+      return false;
+    }
+    return true;
   } catch (err) {
     console.error('Error verificando Turnstile:', err);
     return false;
@@ -159,6 +167,13 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
         statusCode: 400,
         headers: corsHeaders,
         body: JSON.stringify({ error: 'Email inválido' }),
+      };
+    }
+    if (name.length > 100 || email.length > 254) {
+      return {
+        statusCode: 400,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: 'Nombre o email demasiado largo' }),
       };
     }
     if (message.length > 5000) {

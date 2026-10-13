@@ -49,6 +49,6 @@ No screenshots are currently included in this repository. The most useful visual
 ## Repository / Live Site
 
 - **Source code:** this repository — the CDK stack lives in [`lib/`](lib/), the Lambda handler and email template in [`lambda/`](lambda/).
-- **Live site:** the API backs the contact form at [mario-gutierrez.com](https://mario-gutierrez.com).
+- **Live sites:** the API backs the contact forms at [mario-gutierrez.com](https://mario-gutierrez.com) and [portfolio.mario-gutierrez.com](https://portfolio.mario-gutierrez.com/contact).
 
 For full setup and deployment instructions (SES/domain verification, Turnstile configuration, environment variables, and deploy commands), see [`DEPLOY.md`](DEPLOY.md).
