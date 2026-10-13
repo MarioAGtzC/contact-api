@@ -1,54 +1,82 @@
 # Contact API
 
-A serverless contact-form backend for a personal portfolio site, built on AWS. It accepts a name, email, and message from a website form, verifies the submission is human, and delivers it as a formatted email — with no server to manage and near-zero running cost.
+A serverless backend for website contact forms, built on AWS with TypeScript. It accepts a form submission, verifies the sender is human, and delivers the message to an inbox as a formatted email. One deployment serves the contact forms of two of my sites.
 
 ## The Problem It Solves
 
-Personal and portfolio websites need a way for visitors to get in touch, but a plain `mailto:` link is easy to ignore, offers no spam protection, and gives no record of who reached out or how. Standing up a traditional backend (a server, a database, an always-on process) just to relay a few messages a month is disproportionate — it adds hosting cost, security surface, and maintenance for a feature that is used occasionally and briefly.
+A personal website needs a reliable way for visitors to get in touch without exposing a personal email address or letting bots flood the inbox. A traditional server just to relay a handful of messages is more to run, secure, and maintain than the feature is worth.
 
-This project solves that by giving the site a real, secure submission endpoint that:
-- Confirms the sender is a human, not a bot, before anything is processed.
-- Delivers a clean, readable notification email straight to an inbox — no dashboard or database to check.
-- Captures useful context automatically (when the message came in, roughly how long it is, where it was sent from) without asking the visitor for it or trusting anything they claim.
-- Costs effectively nothing to run and requires no server to patch, monitor, or scale.
+This project gives each site a single, secure endpoint that:
+
+- Filters out bots before a message is ever sent.
+- Delivers every submission as a readable email; replying to it goes straight to the sender.
+- Records useful context (time, source page, device, IP) automatically, without trusting anything the browser claims.
+- Runs only when a message arrives; there is no server to patch or keep online.
 
 ## My Role and Process
 
-I designed and built the entire backend end-to-end, from architecture through deployment configuration:
+Solo project: I designed, built, and deployed it end to end.
 
-1. **Defined the contract** — a single `POST /contact` endpoint accepting `name`, `email`, `message`, and a bot-verification token, matching what the website's contact form needed to send.
-2. **Chose a fully serverless architecture** to avoid any always-on infrastructure: API Gateway to receive the request, a single Lambda function to process it, and SES to deliver the email — nothing to provision, patch, or pay for while idle.
-3. **Hardened the endpoint against abuse** by verifying the CAPTCHA token server-side, re-validating every field before use, and computing sensitive metadata (IP, user agent, timestamp) from the request itself rather than trusting client-supplied values.
-4. **Built the email as a real deliverable**, not just a raw dump of form fields — a styled HTML template with a plain-text fallback for deliverability, with all user-supplied content HTML-escaped to prevent injection into the rendered email.
-5. **Modeled and deployed the infrastructure as code** using AWS CDK, so the entire stack (API, Lambda, permissions, email identity, rate limiting) is version-controlled and reproducible with a single deploy command rather than assembled by hand in the AWS console.
-6. **Tuned for a low-traffic, cost-sensitive use case** — sizing throttling limits and Lambda resources for a personal-site volume, and deliberately leaving out infrastructure (like AWS WAF) whose cost isn't justified at that scale.
-7. **Documented the operational setup** (domain/DKIM verification, CAPTCHA configuration, deployment steps) so the project can be redeployed or handed off without re-deriving the setup from the code.
+1. **Defined the contract**: one `POST /contact` endpoint taking `name`, `email`, `message`, and a CAPTCHA token, plus optional `phone` and `subject` fields so a second site could send more data without breaking the first.
+2. **Chose a fully serverless design**: API Gateway → Lambda → SES, with no database and no always-on compute.
+3. **Hardened the endpoint**:
+   - Validates every field server-side (required fields, email format, length caps of 100 / 254 / 5,000 characters for name / email / message).
+   - Verifies the CAPTCHA token and checks that it was solved on the same site making the request.
+   - Rejects any origin that has no CAPTCHA secret configured.
+   - HTML-escapes all user input before it goes into the email.
+4. **Made multi-site support a configuration change**: each allowed origin has its own CAPTCHA secret and a short label, so the email shows which site a message came from.
+5. **Defined all infrastructure as code** with AWS CDK. Secrets and the destination address are passed at deploy time, never committed. The deploy stops with an error if any of them is missing.
+6. **Made deliberate cost and scope trade-offs**: an HTTP API instead of a REST API, and API-wide throttling instead of AWS WAF per-IP rules.
 
-## Technologies and Tools Used
+Setup and deployment steps are in [DEPLOY.md](DEPLOY.md).
 
-- **TypeScript end to end** — one language for both the infrastructure definition and the Lambda handler, with typed API Gateway events and a typed request payload.
-- **Serverless request handling with AWS Lambda (Node.js)** — a single on-demand function validates the submission, verifies the CAPTCHA, builds the email, and sends it; nothing runs (or costs money) between requests.
-- **Public endpoint, CORS, and rate limiting with Amazon API Gateway (HTTP API)** — exposes `POST /contact`, restricts browser access to an allowlist of front-end origins, and applies stage-level throttling. HTTP API was chosen over REST API because it is cheaper and covers everything this endpoint needs.
-- **Authenticated email delivery with Amazon SES** — sends the notification from a custom-domain address with DKIM signing, an HTML body plus a plain-text fallback, and the sender's address set as reply-to.
-- **Infrastructure as code with AWS CDK** — the whole stack (Lambda, API, SES identity, throttling, log retention) is defined in code and deployed with one command. This includes an IAM policy that limits the function to SES send actions, and deploy outputs for the endpoint URL and the DKIM records that have to be added by hand at the DNS provider.
-- **CAPTCHA validation via Cloudflare Turnstile** — the token is checked server-side against Cloudflare's verification API before anything is processed. Each allowed origin has its own secret key, so more than one site can share the same backend.
-- **Hand-built HTML email template** — an inline-styled template that renders well across email clients, shows optional sections only when the form sends those fields, and HTML-escapes all user input before inserting it.
+## Technologies and Tools
 
-## Results / Impact
+**Language and runtime**
+- **TypeScript** for both the infrastructure definition and the request handler, with typed API Gateway events and a typed payload.
+- **AWS Lambda (Node.js 24)** runs the handler: 256 MB memory, a 10-second timeout, and logs kept for one month.
 
-- Delivers a working, production-ready contact channel for the portfolio site with **no server to maintain and no idle cost** — infrastructure spend for realistic personal-site traffic (hundreds of messages/month) runs an estimated **$0–$0.05/month**, staying well within AWS free-tier limits.
-- **Blocks automated spam submissions** at the API layer via server-side CAPTCHA verification, before any message reaches an inbox.
-- **Rate-limits the public endpoint** (5 requests/second sustained, burst of 10) to contain abuse or misconfiguration without needing paid protections like AWS WAF.
-- Removes the need for a database, admin dashboard, or third-party form service — every submission simply arrives as a well-formatted email, with the sender's reply-to address already set so replying is a single click.
-- The entire stack is reproducible from source in a single `cdk deploy`, meaning the whole backend can be torn down, recreated, or migrated to a new AWS account/region with no manual reconfiguration.
+**API and traffic control**
+- **Amazon API Gateway (HTTP API)** exposes the public endpoint, allows CORS only for a list of approved front-end origins, and throttles the whole API to 5 requests/second, with bursts of up to 10.
 
-## Images, Screenshots, or Live Demos
+**Email delivery**
+- **Amazon SES (AWS SDK v3)** sends from a custom-domain address with DKIM signing. Each email has an HTML body, a plain-text fallback, and the sender set as reply-to.
+- **Custom HTML email template** with inline styles, placeholder substitution, and sections that appear only when optional fields (phone, subject) are sent.
 
-No screenshots are currently included in this repository. The most useful visual reference would be a rendered sample of the notification email, generated from `lambda/email-template.html` — a dark-themed card showing the sender's name, initials, email, message, and submission metadata. A screenshot of that rendered template (e.g., as viewed in an email client) could be added here, along with a short GIF of the live contact form on the portfolio site submitting successfully.
+**Bot protection**
+- **Cloudflare Turnstile** CAPTCHA, checked server-side against Cloudflare's verification API, with a separate secret for each site.
 
-## Repository / Live Site
+**Infrastructure as code and security**
+- **AWS CDK** defines the Lambda, the HTTP API and its route, CORS, throttling, the SES domain identity, and log retention. Deploying prints the endpoint URL and the DKIM DNS records.
+- **Least-privilege IAM**: the function may only call the SES send actions, and only for the configured identities.
+- **esbuild** (through CDK's `NodejsFunction`) bundles and minifies the handler, with a custom hook that ships the email template alongside it.
 
-- **Source code:** this repository — the CDK stack lives in [`lib/`](lib/), the Lambda handler and email template in [`lambda/`](lambda/).
-- **Live sites:** the API backs the contact forms at [mario-gutierrez.com](https://mario-gutierrez.com) and [portfolio.mario-gutierrez.com](https://portfolio.mario-gutierrez.com/contact).
+**Testing**
+- There is no automated test suite or CI pipeline yet. Deployment is a manual `cdk deploy`, as described in [DEPLOY.md](DEPLOY.md).
 
-For full setup and deployment instructions (SES/domain verification, Turnstile configuration, environment variables, and deploy commands), see [`DEPLOY.md`](DEPLOY.md).
+## Results and Impact
+
+- **In use**: one deployment handles the contact forms of two separate sites, each with its own CAPTCHA configuration.
+- **Spam filtered before email**: a submission is sent only if it passes field validation and the CAPTCHA check, including the site match.
+- **Bounded exposure**: API-wide throttling (5 req/s, burst of 10) limits how far abuse or a misbehaving client can drive usage, without paying for a WAF.
+- **Little to maintain**: no servers, no database, no admin dashboard. Messages arrive as emails, and replying is one click.
+- **Reproducible**: the whole stack can be recreated from source with a single CDK deploy, given the required deploy-time values.
+
+No traffic or cost figures have been measured, so none are given here.
+
+## Screenshots / Demo
+
+No screenshots are included yet. Suggested additions, to be placed in a `docs/` folder and embedded here:
+
+- A rendered notification email produced from [lambda/email-template.html](lambda/email-template.html).
+- A short recording of a contact form submitting successfully.
+
+## Links
+
+- **Case study:** [portfolio.mario-gutierrez.com/portfolio/contact-api](https://portfolio.mario-gutierrez.com/portfolio/contact-api)
+- **Deployment guide:** [DEPLOY.md](DEPLOY.md)
+- **Live site:** none listed.
+
+---
+
+**Author:** Mario Gutiérrez, Backend Software Engineer
