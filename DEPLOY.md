@@ -66,12 +66,36 @@ ti — los agregas a mano una sola vez.
 > verificar el email para **recibir** (`SES_TO_EMAIL`, tu Hotmail) — ese
 > sigue el proceso del paso 2 de abajo (mientras SES esté en sandbox).
 
-## 5. Configurar Turnstile (captcha)
+## 4. Configurar Turnstile (captcha)
 
 1. Ve a [dash.cloudflare.com](https://dash.cloudflare.com) → **Turnstile**
    (no necesitas tener tu dominio en Cloudflare).
 2. Crea un site, agrega tu dominio.
 3. Copia el **Site Key** (pública) y el **Secret Key** (privada).
+
+## 5. Guardar el correo y las secrets en SSM
+
+Los valores privados no van en el código ni en el comando de deploy: viven en
+**SSM Parameter Store** (parámetros estándar, sin costo). Se crean una sola
+vez desde la terminal, en la misma región del stack:
+
+```bash
+# Correo que RECIBE los mensajes (se lee al hacer deploy)
+aws ssm put-parameter --name /contact-api/to-email --type String --value "tu-email@hotmail.com"
+
+# Una Secret Key de Turnstile por sitio, con el hostname del sitio como nombre
+aws ssm put-parameter --name /contact-api/turnstile/mario-gutierrez.com --type SecureString --value "SECRET_WIDGET_MARIO"
+aws ssm put-parameter --name /contact-api/turnstile/portfolio.mario-gutierrez.com --type SecureString --value "SECRET_WIDGET_GREENIE"
+```
+
+- `to-email` se resuelve al hacer deploy: si lo cambias, vuelve a desplegar.
+  Si no existe, el deploy falla en vez de desplegar sin destino.
+- Las secrets de Turnstile son `SecureString` (cifradas con la llave `aws/ssm`
+  que administra AWS) y la Lambda las lee en runtime, así que no aparecen en
+  el template ni en las variables de entorno. Se cachean 5 minutos: si cambias
+  una, toma efecto sola, sin redeploy.
+- Para actualizar un valor existente agrega `--overwrite` al comando.
+- Un sitio sin parámetro se rechaza: el mensaje no se envía sin captcha.
 
 ## 6. Editar configuración
 
@@ -80,8 +104,14 @@ Abre `lib/contact-api-stack.ts` y cambia:
 ```typescript
 const DOMAIN_NAME = 'tudominio.com';
 const SES_FROM_EMAIL = `contacto@${DOMAIN_NAME}`;
-const ALLOWED_ORIGIN = 'https://tu-sitio.com';
+const ALLOWED_ORIGINS = [
+  'https://tu-sitio.com',
+  'https://otro-sitio.com',
+];
 ```
+
+Para agregar un sitio nuevo: suma su origin a `ALLOWED_ORIGINS`, crea su
+parámetro `/contact-api/turnstile/<hostname>` (paso 5) y vuelve a desplegar.
 
 ## 7. Desplegar
 
@@ -91,15 +121,11 @@ Primera vez en esta cuenta/región, necesitas hacer bootstrap una sola vez:
 npx cdk bootstrap
 ```
 
-Luego despliega pasando como contexto tu correo de destino y las Secret Keys
-de Turnstile de cada widget (así no quedan escritas en el código):
+Luego despliega (los valores privados ya están en SSM, paso 5):
 
 ```bash
-npx cdk deploy -c toEmail=TU_EMAIL -c turnstileSecret=SECRET_WIDGET_MARIO -c turnstileSecretGreenie=SECRET_WIDGET_GREENIE
+npx cdk deploy
 ```
-
-Los tres son obligatorios: si falta alguno, el deploy se detiene con un error
-en vez de desplegar con un valor vacío.
 
 Al terminar, la terminal imprime algo como:
 
@@ -155,12 +181,29 @@ formulario.
 | `npx cdk deploy` | Despliega/actualiza el stack |
 | `npx cdk destroy` | Elimina todo lo creado (para no dejar nada corriendo) |
 | `npx cdk synth` | Genera el CloudFormation template sin desplegar |
+| `npm test` | Corre los tests (Vitest) |
+| `npm run typecheck` | Revisa los tipos de TypeScript sin compilar |
+
+## Tests y CI
+
+Los tests viven en `test/` y usan [Vitest](https://vitest.dev):
+
+- **Unitarios** de cada módulo de `lambda/lib/` (validación, Turnstile,
+  secrets de SSM, template y CORS).
+- **Del handler** completo, con SES, SSM y la llamada a Cloudflare simulados:
+  no tocan AWS ni mandan correos.
+- **Del stack**: sintetizan el stack y revisan el template (runtime, CORS,
+  throttling, permisos de IAM y que no queden secrets en él).
+
+GitHub Actions (`.github/workflows/ci.yml`) corre `typecheck`, los tests y
+`cdk synth` en cada push a `main` y en cada pull request. No necesita
+credenciales de AWS y no despliega: el deploy sigue siendo manual.
 
 ## Costo esperado
 
 Para tráfico de un portafolio personal (cientos de mensajes/mes), el costo
 real es **$0–$0.05/mes** — Lambda, API Gateway y SES están muy por debajo de
-sus free tiers a ese volumen. Configura una alarma de billing en CloudWatch
+sus free tiers a ese volumen. Los parámetros estándar de SSM no tienen costo. Configura una alarma de billing en CloudWatch
 a $1-5 si quieres dormir tranquilo.
 
 ## Notas de seguridad
@@ -170,5 +213,6 @@ a $1-5 si quieres dormir tranquilo.
   (tiene costo fijo ~$6/mes, omitido aquí a propósito por ser overkill para
   este volumen de tráfico).
 - El captcha de Turnstile es la defensa principal contra spam/bots.
-- Nunca subas tu `TURNSTILE_SECRET_KEY` a git — se pasa como contexto de CDK
-  o mejor aún, guárdala en AWS Secrets Manager para un setup más robusto.
+- Nunca subas una Secret Key de Turnstile ni tu correo a git: viven en SSM
+  Parameter Store (paso 5). La Lambda solo tiene permiso de leer
+  `/contact-api/turnstile/*`.

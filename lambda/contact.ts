@@ -1,7 +1,12 @@
 import { join } from 'path';
 import { readFileSync } from 'fs';
-import { APIGatewayProxyHandlerV2 } from 'aws-lambda';
+import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from 'aws-lambda';
 import { SESClient, SendEmailCommand } from '@aws-sdk/client-ses';
+import { getCorsHeaders, parseAllowedOrigins } from './lib/cors';
+import { createSecretStore } from './lib/secrets';
+import { verifyTurnstile } from './lib/turnstile';
+import { validatePayload } from './lib/validation';
+import { escapeHtml, getInitials, getSiteLabel, getWordCount, renderTemplate } from './lib/template';
 
 const ses = new SESClient({});
 
@@ -9,189 +14,50 @@ const ses = new SESClient({});
 // invocaciones "calientes" de la Lambda en vez de leer el archivo cada vez.
 const emailTemplate = readFileSync(join(__dirname, 'email-template.html'), 'utf-8');
 
-interface ContactPayload {
-  name: string;
-  email: string;
-  message: string;
-  turnstileToken: string;
-  // Campos que solo manda el portfolio — opcionales para no
-  // romper el payload del sitio original (mario-gutierrez.com)
-  phone?: string;
-  subject?: string;
-}
+const allowedOrigins = parseAllowedOrigins(process.env.ALLOWED_ORIGINS);
+const secretStore = createSecretStore({ path: process.env.TURNSTILE_PARAM_PATH });
 
-function getWordCount(text: string): number {
-  return text.trim().split(/\s+/).filter(Boolean).length;
-}
-
-function getInitials(name: string): string {
-  return name
-    .trim()
-    .split(/\s+/)
-    .map((n) => n[0])
-    .join('')
-    .toUpperCase();
-}
-
-function isValidEmail(email: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-}
-
-// Escapa HTML del usuario antes de insertarlo en el template — sin esto,
-// alguien podría meter <script> o markup propio en "name" o "message" y
-// romper el layout del correo (o intentar un ataque tipo XSS/HTML injection).
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-// Etiqueta corta del sitio que envió el formulario, para la barra del email.
-const SITE_LABELS: Record<string, string> = {
-  'mario-gutierrez.com': 'resume',
-  'portfolio.mario-gutierrez.com': 'portfolio',
-};
-
-function getSiteLabel(requestOrigin: string): string {
-  try {
-    const host = new URL(requestOrigin).hostname.replace(/^www\./, '');
-    return SITE_LABELS[host] ?? host;
-  } catch {
-    return 'unknown';
-  }
-}
-
-// Bloques opcionales del template: <!--IF:key-->...<!--ENDIF:key-->.
-// Si `present` no incluye la key, se borra el bloque completo; si la incluye,
-// solo se quitan los marcadores y el contenido queda.
-function stripConditionalBlocks(html: string, present: Set<string>): string {
-  return html.replace(
-    /<!--IF:(\w+)-->([\s\S]*?)<!--ENDIF:\1-->/g,
-    (_match, key: string, inner: string) => (present.has(key) ? inner : '')
-  );
-}
-
-function renderTemplate(vars: Record<string, string>, present: Set<string>): string {
-  let html = stripConditionalBlocks(emailTemplate, present);
-  for (const [key, value] of Object.entries(vars)) {
-    html = html.split(`{{${key}}}`).join(value);
-  }
-  return html;
-}
-
-// Cada sitio (origin) puede tener su propio site/secret de Turnstile —
-// mapeo origin -> secret key, ej: {"https://a.com":"xxx","https://b.com":"yyy"}
-const turnstileSecrets: Record<string, string> = (() => {
-  try {
-    return JSON.parse(process.env.TURNSTILE_SECRETS || '{}');
-  } catch {
-    return {};
-  }
-})();
-
-async function verifyTurnstile(token: string, ip: string, requestOrigin: string): Promise<boolean> {
-  if (!token) return false;
-
-  const secret = turnstileSecrets[requestOrigin];
-  if (!secret) {
-    // Sin secret no hay forma de verificar el token: se rechaza el mensaje en vez
-    // de dejarlo pasar sin captcha.
-    console.error(`No hay TURNSTILE secret configurada para el origin "${requestOrigin}" — mensaje rechazado`);
-    return false;
-  }
-
-  try {
-    const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ secret, response: token, remoteip: ip }),
-    });
-    const data = (await res.json()) as { success: boolean; hostname?: string };
-    if (data.success !== true) return false;
-
-    // El token debe haberse resuelto en el mismo sitio que hace la petición —
-    // evita reutilizar un token obtenido en otro dominio.
-    const expectedHostname = new URL(requestOrigin).hostname;
-    if (data.hostname !== expectedHostname) {
-      console.warn(`Turnstile hostname "${data.hostname}" no coincide con "${expectedHostname}"`);
-      return false;
-    }
-    return true;
-  } catch (err) {
-    console.error('Error verificando Turnstile:', err);
-    return false;
-  }
-}
-
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
-  .split(',')
-  .map((o) => o.trim())
-  .filter(Boolean);
-
-// Refleja el origin del request si está en la whitelist; si no, cae al
-// primero de la lista en vez de exponer un origin no autorizado.
-function getCorsHeaders(requestOrigin?: string) {
-  const origin =
-    (requestOrigin && allowedOrigins.includes(requestOrigin) ? requestOrigin : allowedOrigins[0]) || '*';
-  return {
-    'Access-Control-Allow-Origin': origin,
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Allow-Methods': 'POST,OPTIONS',
-  };
-}
-
-export const handler: APIGatewayProxyHandlerV2 = async (event) => {
+export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> => {
   const requestOrigin = event.headers['origin'] ?? '';
-  const corsHeaders = getCorsHeaders(requestOrigin);
+  const corsHeaders = getCorsHeaders(requestOrigin, allowedOrigins);
+  const respond = (statusCode: number, body: object): APIGatewayProxyStructuredResultV2 => ({
+    statusCode,
+    headers: corsHeaders,
+    body: JSON.stringify(body),
+  });
+
   try {
-    const body: ContactPayload = JSON.parse(event.body ?? '{}');
-    const { name, email, message, turnstileToken, phone, subject: userSubject } = body;
+    let body: unknown;
+    try {
+      body = JSON.parse(event.body ?? '{}');
+    } catch {
+      return respond(400, { error: 'JSON inválido' });
+    }
+
+    // --- Validación básica ---
+    const validation = validatePayload(body);
+    if (!validation.ok) {
+      return respond(400, { error: validation.error });
+    }
+    const { name, email, message, turnstileToken, phone, subject: userSubject } = validation.data;
 
     // Datos capturados server-side — el cliente no los manda ni los puede falsear
     const ip = event.requestContext.http.sourceIp;
     const userAgent = event.headers['user-agent'] ?? 'unknown';
 
-    // --- Validación básica ---
-    if (!name?.trim() || !email?.trim() || !message?.trim()) {
-      return {
-        statusCode: 400,
-        headers: corsHeaders,
-        body: JSON.stringify({ error: 'Faltan campos requeridos' }),
-      };
-    }
-    if (!isValidEmail(email)) {
-      return {
-        statusCode: 400,
-        headers: corsHeaders,
-        body: JSON.stringify({ error: 'Email inválido' }),
-      };
-    }
-    if (name.length > 100 || email.length > 254) {
-      return {
-        statusCode: 400,
-        headers: corsHeaders,
-        body: JSON.stringify({ error: 'Nombre o email demasiado largo' }),
-      };
-    }
-    if (message.length > 5000) {
-      return {
-        statusCode: 400,
-        headers: corsHeaders,
-        body: JSON.stringify({ error: 'Mensaje demasiado largo' }),
-      };
-    }
-
     // --- Verificación de captcha ---
-    const isHuman = await verifyTurnstile(turnstileToken, ip, requestOrigin);
+    // Solo se verifica para los sitios de la whitelist; cualquier otro origin
+    // se rechaza igual que un captcha inválido.
+    const isHuman =
+      allowedOrigins.includes(requestOrigin) &&
+      (await verifyTurnstile({
+        token: turnstileToken,
+        ip,
+        requestOrigin,
+        getSecret: secretStore.getSecret,
+      }));
     if (!isHuman) {
-      return {
-        statusCode: 400,
-        headers: corsHeaders,
-        body: JSON.stringify({ error: 'Verificación de captcha fallida' }),
-      };
+      return respond(400, { error: 'Verificación de captcha fallida' });
     }
 
     // --- Metadata calculada server-side ---
@@ -216,6 +82,7 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
     if (cleanUserSubject) presentBlocks.add('user_subject');
 
     const htmlBody = renderTemplate(
+      emailTemplate,
       {
         name: escapeHtml(name),
         email: escapeHtml(email),
@@ -264,17 +131,9 @@ ${message}
       })
     );
 
-    return {
-      statusCode: 200,
-      headers: corsHeaders,
-      body: JSON.stringify({ success: true }),
-    };
+    return respond(200, { success: true });
   } catch (err) {
     console.error('Error procesando mensaje de contacto:', err);
-    return {
-      statusCode: 500,
-      headers: corsHeaders,
-      body: JSON.stringify({ error: 'Error interno del servidor' }),
-    };
+    return respond(500, { error: 'Error interno del servidor' });
   }
 };

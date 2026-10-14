@@ -10,7 +10,10 @@
     "cdk": "cdk",
     "deploy": "cdk deploy",
     "diff": "cdk diff",
-    "synth": "cdk synth"
+    "synth": "cdk synth",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.130",
@@ -18,10 +21,12 @@
     "aws-cdk": "^2.150.0",
     "esbuild": "^0.21.0",
     "ts-node": "^10.9.0",
-    "typescript": "^5.4.0"
+    "typescript": "^5.4.0",
+    "vitest": "^3.2.4"
   },
   "dependencies": {
     "@aws-sdk/client-ses": "^3.500.0",
+    "@aws-sdk/client-ssm": "^3.500.0",
     "aws-cdk-lib": "^2.150.0",
     "constructs": "^10.3.0"
   }

@@ -2,21 +2,18 @@ import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as ses from 'aws-cdk-lib/aws-ses';
+import * as ssm from 'aws-cdk-lib/aws-ssm';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as lambdaCore from 'aws-cdk-lib/aws-lambda';
 import * as apigw from 'aws-cdk-lib/aws-apigatewayv2';
 import * as lambda from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 
-// Lee un valor de contexto (-c key=value) y detiene el deploy si falta, en vez
-// de desplegar con un valor vacío sin avisar.
-function requireContext(scope: Construct, key: string): string {
-  const value = scope.node.tryGetContext(key);
-  if (typeof value !== 'string' || !value.trim()) {
-    throw new Error(`Falta el contexto "${key}". Despliega con: npx cdk deploy -c ${key}=...`);
-  }
-  return value.trim();
-}
+// Valores privados (correo de destino y secrets de Turnstile) viven en SSM
+// Parameter Store, no en el repo ni en el comando de deploy. Ver DEPLOY.md.
+const PARAM_PREFIX = '/contact-api';
+const TO_EMAIL_PARAM = `${PARAM_PREFIX}/to-email`;
+const TURNSTILE_PARAM_PATH = `${PARAM_PREFIX}/turnstile`;
 
 export class ContactApiStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -27,23 +24,21 @@ export class ContactApiStack extends cdk.Stack {
     // ---------------------------------------------------------------------
     const DOMAIN_NAME = 'mario-gutierrez.com';              // tu dominio, sin "https://"
     const SES_FROM_EMAIL = `contact@${DOMAIN_NAME}`;        // dirección de envío en tu dominio
-    // Donde recibes los mensajes — se pasa al hacer deploy (-c toEmail=...) para
-    // no publicar tu correo personal en el repo.
-    const SES_TO_EMAIL = requireContext(this, 'toEmail');
+    // Donde recibes los mensajes — se lee de SSM (/contact-api/to-email) al
+    // hacer deploy, para no publicar tu correo personal en el repo. Si el
+    // parámetro no existe, el deploy falla en vez de desplegar sin destino.
+    const SES_TO_EMAIL = ssm.StringParameter.valueForStringParameter(this, TO_EMAIL_PARAM);
     // Todos los frontends que pueden llamar a esta API — agrega aquí cualquier sitio nuevo
     const ALLOWED_ORIGINS = [
       'https://mario-gutierrez.com',
       'https://portfolio.mario-gutierrez.com',
     ];
 
-    // Cada sitio puede tener su propio site/secret de Turnstile — agrega aquí
-    // el context key correspondiente y pásalo al hacer deploy:
-    // cdk deploy -c turnstileSecret=xxxx -c turnstileSecretGreenie=yyyy
-    const TURNSTILE_SECRETS: Record<string, string> = {
-      'https://mario-gutierrez.com': requireContext(this, 'turnstileSecret'),
-      // El portfolio usa el widget de greenie (mismo site key en su nuevo dominio)
-      'https://portfolio.mario-gutierrez.com': requireContext(this, 'turnstileSecretGreenie'),
-    };
+    // Cada sitio tiene su propia secret de Turnstile, guardada en SSM como
+    // SecureString con el hostname del sitio como nombre, ej:
+    //   /contact-api/turnstile/mario-gutierrez.com
+    // La Lambda las lee en runtime; para agregar un sitio basta con crear su
+    // parámetro y sumar el origin a ALLOWED_ORIGINS.
 
     // ---------------------------------------------------------------------
     // SES — verificación de dominio + DKIM
@@ -80,9 +75,9 @@ export class ContactApiStack extends cdk.Stack {
         SES_TO_EMAIL,
         // Env vars solo aceptan strings — se unen con coma y el handler las separa
         ALLOWED_ORIGINS: ALLOWED_ORIGINS.join(','),
-        // Secrets de Turnstile por origin — NUNCA hardcodeadas aquí; se pasan
-        // al hacer deploy con -c turnstileSecret=... -c turnstileSecretGreenie=...
-        TURNSTILE_SECRETS: JSON.stringify(TURNSTILE_SECRETS),
+        // Ruta en SSM de las secrets de Turnstile — la Lambda las lee en
+        // runtime, así que nunca aparecen en el template ni en la consola.
+        TURNSTILE_PARAM_PATH,
       },
       bundling: {
         minify: true,
@@ -117,6 +112,22 @@ export class ContactApiStack extends cdk.Stack {
       new iam.PolicyStatement({
         actions: ['ses:SendEmail', 'ses:SendRawEmail'],
         resources: [sesIdentityArn(DOMAIN_NAME), sesIdentityArn(SES_TO_EMAIL)],
+      })
+    );
+
+    // Permiso para leer solo las secrets de Turnstile. Son SecureString con la
+    // llave administrada por AWS (aws/ssm), cuya política ya permite descifrar
+    // vía SSM dentro de la cuenta — no hace falta un permiso de KMS aparte.
+    contactFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['ssm:GetParametersByPath'],
+        resources: [
+          this.formatArn({
+            service: 'ssm',
+            resource: 'parameter',
+            resourceName: TURNSTILE_PARAM_PATH.slice(1),
+          }),
+        ],
       })
     );
 
