@@ -3,6 +3,7 @@ import { readFileSync } from 'fs';
 import type { APIGatewayProxyEventV2, APIGatewayProxyStructuredResultV2 } from 'aws-lambda';
 import { SESClient, SendEmailCommand } from '@aws-sdk/client-ses';
 import { getCorsHeaders, parseAllowedOrigins } from './lib/cors';
+import { logRequest } from './lib/log';
 import { createSecretStore } from './lib/secrets';
 import { verifyTurnstile } from './lib/turnstile';
 import { validatePayload } from './lib/validation';
@@ -17,27 +18,37 @@ const emailTemplate = readFileSync(join(__dirname, 'email-template.html'), 'utf-
 const allowedOrigins = parseAllowedOrigins(process.env.ALLOWED_ORIGINS);
 const secretStore = createSecretStore({ path: process.env.TURNSTILE_PARAM_PATH });
 
+// Quita saltos de línea y espacios extra — los asuntos de correo van en una línea.
+function toOneLine(text: string): string {
+  return text.replace(/[\r\n]+/g, ' ').trim();
+}
+
 export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGatewayProxyStructuredResultV2> => {
   const requestOrigin = event.headers['origin'] ?? '';
   const corsHeaders = getCorsHeaders(requestOrigin, allowedOrigins);
+  const site = getSiteLabel(requestOrigin);
   const respond = (statusCode: number, body: object): APIGatewayProxyStructuredResultV2 => ({
     statusCode,
     headers: corsHeaders,
     body: JSON.stringify(body),
   });
+  const reject = (reason: string, error: string, errorCodes?: string[]) => {
+    logRequest({ site, status: 400, result: 'rejected', reason, errorCodes });
+    return respond(400, { error });
+  };
 
   try {
     let body: unknown;
     try {
       body = JSON.parse(event.body ?? '{}');
     } catch {
-      return respond(400, { error: 'JSON inválido' });
+      return reject('invalid_json', 'JSON inválido');
     }
 
     // --- Validación básica ---
     const validation = validatePayload(body);
     if (!validation.ok) {
-      return respond(400, { error: validation.error });
+      return reject(validation.code, validation.error);
     }
     const { name, email, message, turnstileToken, phone, subject: userSubject } = validation.data;
 
@@ -48,16 +59,17 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
     // --- Verificación de captcha ---
     // Solo se verifica para los sitios de la whitelist; cualquier otro origin
     // se rechaza igual que un captcha inválido.
-    const isHuman =
-      allowedOrigins.includes(requestOrigin) &&
-      (await verifyTurnstile({
-        token: turnstileToken,
-        ip,
-        requestOrigin,
-        getSecret: secretStore.getSecret,
-      }));
-    if (!isHuman) {
-      return respond(400, { error: 'Verificación de captcha fallida' });
+    if (!allowedOrigins.includes(requestOrigin)) {
+      return reject('origin_not_allowed', 'Verificación de captcha fallida');
+    }
+    const captcha = await verifyTurnstile({
+      token: turnstileToken,
+      ip,
+      requestOrigin,
+      getSecret: secretStore.getSecret,
+    });
+    if (!captcha.ok) {
+      return reject(captcha.reason, 'Verificación de captcha fallida', captcha.errorCodes);
     }
 
     // --- Metadata calculada server-side ---
@@ -71,12 +83,19 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
     // falsear fácilmente.
     const origin = event.headers['referer'] || event.headers['origin'] || 'unknown';
 
-    const emailSubject = `Re: Message from ${name} via website`;
-
     // Solo mostramos phone/subject en el email si el cliente los mandó —
     // el sitio viejo no los envía, así que su email no cambia de forma visible.
     const cleanPhone = phone?.trim();
-    const cleanUserSubject = userSubject?.trim().replace(/[\r\n]+/g, ' ');
+    const cleanUserSubject = toOneLine(userSubject ?? '') || undefined;
+
+    // Sin "Re:" (en un correo que no es respuesta es señal de spam) y con el
+    // sitio al inicio, para distinguirlos y que el cliente de correo no los
+    // agrupe todos en una sola conversación.
+    const emailSubject = cleanUserSubject
+      ? `[${site}] ${cleanUserSubject} — ${toOneLine(name)}`
+      : `[${site}] New message from ${toOneLine(name)}`;
+    // Asunto sugerido al responderle al remitente desde el botón del correo
+    const replySubject = `Re: ${cleanUserSubject ?? 'your message'}`;
     const presentBlocks = new Set<string>();
     if (cleanPhone) presentBlocks.add('phone');
     if (cleanUserSubject) presentBlocks.add('user_subject');
@@ -90,10 +109,10 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
         user_subject: escapeHtml(cleanUserSubject ?? ''),
         message: escapeHtml(message),
         initials: escapeHtml(getInitials(name)),
-        site: escapeHtml(getSiteLabel(requestOrigin)),
+        site: escapeHtml(site),
         time,
         word_count: String(getWordCount(message)),
-        subject: encodeURIComponent(emailSubject), // va dentro de un mailto:?subject=...
+        subject: encodeURIComponent(replySubject), // va dentro de un mailto:?subject=...
         origin: escapeHtml(origin),
         device_info: escapeHtml(userAgent),
         ip: escapeHtml(ip),
@@ -106,6 +125,7 @@ export const handler = async (event: APIGatewayProxyEventV2): Promise<APIGateway
     const textBody = `
 Nombre: ${name}
 Email: ${email}${cleanPhone ? `\nTeléfono: ${cleanPhone}` : ''}${cleanUserSubject ? `\nAsunto: ${cleanUserSubject}` : ''}
+Sitio: ${site}
 Fecha: ${time}
 Palabras: ${getWordCount(message)}
 Origen: ${origin}
@@ -116,7 +136,7 @@ Mensaje:
 ${message}
     `.trim();
 
-    await ses.send(
+    const sent = await ses.send(
       new SendEmailCommand({
         Source: process.env.SES_FROM_EMAIL,
         Destination: { ToAddresses: [process.env.SES_TO_EMAIL!] },
@@ -131,9 +151,16 @@ ${message}
       })
     );
 
+    logRequest({ site, status: 200, result: 'sent', messageId: sent.MessageId });
     return respond(200, { success: true });
   } catch (err) {
     console.error('Error procesando mensaje de contacto:', err);
+    logRequest({
+      site,
+      status: 500,
+      result: 'error',
+      reason: err instanceof Error ? err.name : 'unknown',
+    });
     return respond(500, { error: 'Error interno del servidor' });
   }
 };

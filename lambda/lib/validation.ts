@@ -15,9 +15,11 @@ export const LIMITS = {
   message: 5000,
 } as const;
 
+export type ValidationErrorCode = 'missing_fields' | 'invalid_email' | 'too_long' | 'message_too_long';
+
 export type ValidationResult =
   | { ok: true; data: ContactPayload }
-  | { ok: false; error: string };
+  | { ok: false; code: ValidationErrorCode; error: string };
 
 export function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -42,16 +44,16 @@ export function validatePayload(body: unknown): ValidationResult {
   const message = asString(raw.message);
 
   if (!name.trim() || !email.trim() || !message.trim()) {
-    return { ok: false, error: 'Faltan campos requeridos' };
+    return { ok: false, code: 'missing_fields', error: 'Faltan campos requeridos' };
   }
   if (!isValidEmail(email)) {
-    return { ok: false, error: 'Email inválido' };
+    return { ok: false, code: 'invalid_email', error: 'Email inválido' };
   }
   if (name.length > LIMITS.name || email.length > LIMITS.email) {
-    return { ok: false, error: 'Nombre o email demasiado largo' };
+    return { ok: false, code: 'too_long', error: 'Nombre o email demasiado largo' };
   }
   if (message.length > LIMITS.message) {
-    return { ok: false, error: 'Mensaje demasiado largo' };
+    return { ok: false, code: 'message_too_long', error: 'Mensaje demasiado largo' };
   }
 
   return {

@@ -184,6 +184,19 @@ formulario.
 | `npm test` | Corre los tests (Vitest) |
 | `npm run typecheck` | Revisa los tipos de TypeScript sin compilar |
 
+## Logs
+
+Cada petición deja una línea JSON en CloudWatch con el sitio, el status, el
+resultado (`sent`, `rejected` o `error`), el motivo del rechazo (incluidos los
+`error-codes` de Turnstile) y el `MessageId` de SES. No incluye nombre, email,
+mensaje ni IP.
+
+```bash
+aws logs tail /aws/lambda/<nombre-de-la-función> --since 1h --filter-pattern '{ $.event = "contact" }'
+```
+
+Ejemplo: `{"event":"contact","site":"portfolio","status":200,"result":"sent","messageId":"0100…"}`
+
 ## Tests y CI
 
 Los tests viven en `test/` y usan [Vitest](https://vitest.dev):

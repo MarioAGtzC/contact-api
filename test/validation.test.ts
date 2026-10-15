@@ -25,31 +25,34 @@ describe('validatePayload', () => {
   });
 
   it.each(['name', 'email', 'message'] as const)('rechaza si falta %s', (field) => {
-    expect(validatePayload({ ...valid, [field]: '   ' })).toEqual({ ok: false, error: 'Faltan campos requeridos' });
+    expect(validatePayload({ ...valid, [field]: '   ' })).toEqual({ ok: false, code: 'missing_fields', error: 'Faltan campos requeridos' });
   });
 
   it('trata campos que no son texto como vacíos', () => {
-    expect(validatePayload({ ...valid, name: 42 })).toEqual({ ok: false, error: 'Faltan campos requeridos' });
-    expect(validatePayload(null)).toEqual({ ok: false, error: 'Faltan campos requeridos' });
+    expect(validatePayload({ ...valid, name: 42 })).toEqual({ ok: false, code: 'missing_fields', error: 'Faltan campos requeridos' });
+    expect(validatePayload(null)).toEqual({ ok: false, code: 'missing_fields', error: 'Faltan campos requeridos' });
   });
 
   it('rechaza un email inválido', () => {
-    expect(validatePayload({ ...valid, email: 'no-es-email' })).toEqual({ ok: false, error: 'Email inválido' });
+    expect(validatePayload({ ...valid, email: 'no-es-email' })).toEqual({ ok: false, code: 'invalid_email', error: 'Email inválido' });
   });
 
   it('respeta los límites de longitud', () => {
     expect(validatePayload({ ...valid, name: 'a'.repeat(LIMITS.name) }).ok).toBe(true);
     expect(validatePayload({ ...valid, name: 'a'.repeat(LIMITS.name + 1) })).toEqual({
       ok: false,
+      code: 'too_long',
       error: 'Nombre o email demasiado largo',
     });
     expect(validatePayload({ ...valid, email: `${'a'.repeat(LIMITS.email)}@example.com` })).toEqual({
       ok: false,
+      code: 'too_long',
       error: 'Nombre o email demasiado largo',
     });
     expect(validatePayload({ ...valid, message: 'a'.repeat(LIMITS.message) }).ok).toBe(true);
     expect(validatePayload({ ...valid, message: 'a'.repeat(LIMITS.message + 1) })).toEqual({
       ok: false,
+      code: 'message_too_long',
       error: 'Mensaje demasiado largo',
     });
   });
