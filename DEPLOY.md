@@ -191,9 +191,33 @@ resultado (`sent`, `rejected` o `error`), el motivo del rechazo (incluidos los
 `error-codes` de Turnstile) y el `MessageId` de SES. No incluye nombre, email,
 mensaje ni IP.
 
-```bash
-aws logs tail /aws/lambda/<nombre-de-la-función> --since 1h --filter-pattern '{ $.event = "contact" }'
+```powershell
+aws logs tail /aws/lambda/$(aws lambda list-functions --query "Functions[?contains(FunctionName,'ContactHandler')].FunctionName" --output text) --since 1h --filter-pattern contact
 ```
+
+`--filter-pattern contact` deja solo esas líneas; sin él también salen las de
+START/END/REPORT de cada invocación.
+
+### Qué pasó con cada correo después de SES
+
+SES publica los eventos de entrega de cada correo en el log group
+`/aws/events/contact-api-ses`:
+
+| Evento | Significa |
+|---|---|
+| `Delivery` | El servidor de destino (Outlook, Gmail…) aceptó el correo |
+| `DeliveryDelay` | El destino lo frenó temporalmente; SES va a reintentar. Incluye la respuesta del servidor |
+| `Bounce` | Rebotó (dirección inexistente, buzón lleno…) |
+| `Complaint` | El destinatario lo marcó como spam |
+| `Reject` | SES no lo envió (por ejemplo, contenido con virus) |
+
+```powershell
+aws logs tail /aws/events/contact-api-ses --since 12h
+```
+
+Cada evento trae `mail.messageId`, el mismo `messageId` del log de la Lambda,
+así que puedes seguir un correo de punta a punta. Para buscar uno en
+particular: `--filter-pattern "<messageId>"`.
 
 Ejemplo: `{"event":"contact","site":"portfolio","status":200,"result":"sent","messageId":"0100…"}`
 

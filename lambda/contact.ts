@@ -148,6 +148,8 @@ ${message}
           },
         },
         ReplyToAddresses: [email],
+        // Publica los eventos de entrega (ver "Logs" en DEPLOY.md)
+        ConfigurationSetName: process.env.SES_CONFIGURATION_SET || undefined,
       })
     );
 

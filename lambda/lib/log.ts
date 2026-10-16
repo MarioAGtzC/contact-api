@@ -2,7 +2,7 @@
 // nombre, email, mensaje ni IP). Sirve para saber qué sitio mandó qué, por qué
 // se rechazó una petición y con qué MessageId salió cada correo de SES.
 //
-// Para buscarlas: aws logs tail /aws/lambda/<función> --filter-pattern '{ $.event = "contact" }'
+// Para verlas: ver la sección "Logs" de DEPLOY.md.
 export interface RequestLog {
   site: string;
   status: number;

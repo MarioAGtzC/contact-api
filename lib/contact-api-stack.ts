@@ -4,6 +4,8 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as ses from 'aws-cdk-lib/aws-ses';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as events from 'aws-cdk-lib/aws-events';
+import * as targets from 'aws-cdk-lib/aws-events-targets';
 import * as lambdaCore from 'aws-cdk-lib/aws-lambda';
 import * as apigw from 'aws-cdk-lib/aws-apigatewayv2';
 import * as lambda from 'aws-cdk-lib/aws-lambda-nodejs';
@@ -61,6 +63,50 @@ export class ContactApiStack extends cdk.Stack {
     });
 
     // ---------------------------------------------------------------------
+    // EVENTOS DE ENTREGA — qué pasó con cada correo después de salir de SES
+    // El configuration set publica en EventBridge los eventos de cada envío
+    // (entregado, retrasado por el servidor de destino, rebotado, queja,
+    // rechazado) y una regla los guarda en un log group. Cada evento trae el
+    // MessageId, el mismo que deja el log de la Lambda, y en los retrasos la
+    // respuesta del servidor que lo frenó. Los eventos de SES en EventBridge
+    // no tienen costo.
+    // ---------------------------------------------------------------------
+    const configurationSet = new ses.ConfigurationSet(this, 'ContactConfigurationSet');
+
+    configurationSet.addEventDestination('ToEventBridge', {
+      destination: ses.EventDestination.eventBus(
+        events.EventBus.fromEventBusName(this, 'DefaultEventBus', 'default')
+      ),
+      events: [
+        ses.EmailSendingEvent.DELIVERY,
+        ses.EmailSendingEvent.DELIVERY_DELAY,
+        ses.EmailSendingEvent.BOUNCE,
+        ses.EmailSendingEvent.COMPLAINT,
+        ses.EmailSendingEvent.REJECT,
+      ],
+    });
+
+    // EventBridge solo escribe en log groups cuyo nombre empieza con /aws/events/
+    const sesEventsLog = new logs.LogGroup(this, 'SesEventsLog', {
+      logGroupName: '/aws/events/contact-api-ses',
+      retention: logs.RetentionDays.ONE_MONTH,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    new events.Rule(this, 'SesEventsRule', {
+      description: 'Guarda los eventos de entrega de los correos de la Contact API',
+      eventPattern: {
+        source: ['aws.ses'],
+        detail: {
+          mail: {
+            tags: { 'ses:configuration-set': [configurationSet.configurationSetName] },
+          },
+        },
+      },
+      targets: [new targets.CloudWatchLogGroup(sesEventsLog)],
+    });
+
+    // ---------------------------------------------------------------------
     // LAMBDA
     // ---------------------------------------------------------------------
     const contactFn = new lambda.NodejsFunction(this, 'ContactHandler', {
@@ -78,6 +124,8 @@ export class ContactApiStack extends cdk.Stack {
         // Ruta en SSM de las secrets de Turnstile — la Lambda las lee en
         // runtime, así que nunca aparecen en el template ni en la consola.
         TURNSTILE_PARAM_PATH,
+        // Cada envío usa este configuration set para publicar sus eventos
+        SES_CONFIGURATION_SET: configurationSet.configurationSetName,
       },
       bundling: {
         minify: true,
@@ -105,13 +153,22 @@ export class ContactApiStack extends cdk.Stack {
 
     // Permiso para que la Lambda pueda mandar emails vía SES — solo desde tu
     // dominio. Mientras SES esté en sandbox, IAM también evalúa la identidad del
-    // destinatario, por eso va incluida.
+    // destinatario, por eso va incluida. Al enviar con configuration set, IAM
+    // también lo evalúa como recurso.
     const sesIdentityArn = (identity: string) =>
       this.formatArn({ service: 'ses', resource: 'identity', resourceName: identity });
     contactFn.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ['ses:SendEmail', 'ses:SendRawEmail'],
-        resources: [sesIdentityArn(DOMAIN_NAME), sesIdentityArn(SES_TO_EMAIL)],
+        resources: [
+          sesIdentityArn(DOMAIN_NAME),
+          sesIdentityArn(SES_TO_EMAIL),
+          this.formatArn({
+            service: 'ses',
+            resource: 'configuration-set',
+            resourceName: configurationSet.configurationSetName,
+          }),
+        ],
       })
     );
 

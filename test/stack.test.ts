@@ -60,6 +60,33 @@ describe('ContactApiStack', () => {
     });
   });
 
+  it('publica los eventos de entrega de SES en un log group', () => {
+    template.resourceCountIs('AWS::SES::ConfigurationSet', 1);
+    template.hasResourceProperties('AWS::SES::ConfigurationSetEventDestination', {
+      EventDestination: Match.objectLike({
+        Enabled: true,
+        MatchingEventTypes: Match.arrayWith(['delivery', 'deliveryDelay', 'bounce', 'complaint', 'reject']),
+        EventBridgeDestination: Match.anyValue(),
+      }),
+    });
+    template.hasResourceProperties('AWS::Logs::LogGroup', {
+      LogGroupName: '/aws/events/contact-api-ses',
+      RetentionInDays: 30,
+    });
+    template.hasResourceProperties('AWS::Events::Rule', {
+      EventPattern: Match.objectLike({ source: ['aws.ses'] }),
+      Targets: Match.arrayWith([Match.objectLike({ Arn: Match.anyValue() })]),
+    });
+  });
+
+  it('la Lambda envía con el configuration set y tiene permiso sobre él', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      Environment: { Variables: Match.objectLike({ SES_CONFIGURATION_SET: Match.anyValue() }) },
+    });
+    const policies = JSON.stringify(template.findResources('AWS::IAM::Policy'));
+    expect(policies).toContain(':configuration-set/');
+  });
+
   it('limita CORS a los sitios permitidos', () => {
     template.hasResourceProperties('AWS::ApiGatewayV2::Api', {
       CorsConfiguration: Match.objectLike({

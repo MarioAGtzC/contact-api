@@ -7,6 +7,7 @@ const { sesSend, ssmSend } = vi.hoisted(() => {
   process.env.TURNSTILE_PARAM_PATH = '/contact-api/turnstile';
   process.env.SES_FROM_EMAIL = 'contact@mario-gutierrez.com';
   process.env.SES_TO_EMAIL = 'inbox@example.com';
+  process.env.SES_CONFIGURATION_SET = 'contact-config-set';
   return { sesSend: vi.fn(), ssmSend: vi.fn() };
 });
 
@@ -97,6 +98,7 @@ describe('handler', () => {
     expect(email.Source).toBe('contact@mario-gutierrez.com');
     expect(email.Destination.ToAddresses).toEqual(['inbox@example.com']);
     expect(email.ReplyToAddresses).toEqual(['ada@example.com']);
+    expect(email.ConfigurationSetName).toBe('contact-config-set');
     expect(email.Message.Subject.Data).toBe('[resume] New message from Ada Lovelace');
 
     const html: string = email.Message.Body.Html.Data;

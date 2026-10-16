@@ -18,6 +18,7 @@
     "@aws-cdk/aws-lambda:recognizeLayerVersion": true,
     "@aws-cdk/core:checkSecretUsage": true,
     "@aws-cdk/core:target-partitions": ["aws", "aws-cn"],
-    "@aws-cdk/aws-apigateway:disableCloudWatchRole": false
+    "@aws-cdk/aws-apigateway:disableCloudWatchRole": false,
+    "@aws-cdk/customresources:installLatestAwsSdkDefault": false
   }
 }
